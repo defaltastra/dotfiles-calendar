@@ -56,7 +56,7 @@
                 <property name="show-week-numbers">true</property>
                 <property name="show-heading">true</property>
                 <property name="margin-top">12</property>
-                <property name="margin-bottom">12</property>
+                <property name="margin-bottom">6</property>
                 <property name="margin-start">12</property>
                 <property name="margin-end">12</property>
                 <property name="day">1</property>

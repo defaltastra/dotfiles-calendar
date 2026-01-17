@@ -17,10 +17,23 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from gi.repository import Adw, Gtk, GLib
+from gi.repository import Adw, Gtk, GLib, Gdk
 from datetime import datetime
 from .event_manager import EventManager
 from .event_dialog import EventListDialog, AddEventDialog, AllEventsDialog
+
+# CSS for styling calendar marked days
+CALENDAR_CSS = """
+/* Try border-bottom approach for marked calendar days */
+calendar > grid > label.day-number[data-marked="true"],
+calendar day:checked label,
+calendar label.day:checked,
+.day-number:backdrop:marked,
+calendar.view grid label:marked {
+    border-bottom: 2px solid @accent_color;
+    font-weight: bold;
+}
+"""
 
 
 @Gtk.Template(resource_path='/com/ml4w/calendar/window.ui')
@@ -33,6 +46,9 @@ class DotfilesCalendarWindow(Adw.ApplicationWindow):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         
+        # Load custom CSS for calendar styling
+        self._load_css()
+        
         # Initialize event manager
         self.event_manager = EventManager()
         
@@ -43,17 +59,32 @@ class DotfilesCalendarWindow(Adw.ApplicationWindow):
         
         # Connect calendar signals
         self.calendar.connect("day-selected", self._on_day_selected)
-        self.calendar.connect("day-selected-double-click", self._on_day_double_clicked)
         self.calendar.connect("next-month", self._on_month_changed)
         self.calendar.connect("prev-month", self._on_month_changed)
         self.calendar.connect("next-year", self._on_month_changed)
         self.calendar.connect("prev-year", self._on_month_changed)
+        
+        # Add double-click gesture for GTK4
+        gesture = Gtk.GestureClick.new()
+        gesture.set_button(1)  # Left mouse button
+        gesture.connect("released", self._on_calendar_click)
+        self.calendar.add_controller(gesture)
         
         # Register for event updates
         self.event_manager.register_callback(self._update_calendar_marks)
         
         # Initial mark update
         GLib.idle_add(self._update_calendar_marks)
+    
+    def _load_css(self):
+        """Load custom CSS for calendar styling."""
+        css_provider = Gtk.CssProvider()
+        css_provider.load_from_string(CALENDAR_CSS)
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(),
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
     
     def _get_selected_date_str(self) -> str:
         """Get the currently selected date as a string (YYYY-MM-DD)."""
@@ -64,26 +95,27 @@ class DotfilesCalendarWindow(Adw.ApplicationWindow):
         """Handle single click on a day - could show a subtle indicator."""
         pass
     
-    def _on_day_double_clicked(self, calendar):
-        """Handle double-click on a day - show events list."""
-        date_str = self._get_selected_date_str()
-        events = self.event_manager.get_events_for_date(date_str)
-        
-        if events:
-            # Show event list
-            dialog = EventListDialog(self.event_manager, date_str)
-            dialog.present(self)
-        else:
-            # Show add event dialog directly
-            dialog = AddEventDialog(self.event_manager, date_str)
-            dialog.present(self)
+    def _on_calendar_click(self, gesture, n_press, x, y):
+        """Handle click on calendar - double-click shows events."""
+        if n_press == 2:  # Double click
+            date_str = self._get_selected_date_str()
+            events = self.event_manager.get_events_for_date(date_str)
+            
+            if events:
+                # Show event list
+                dialog = EventListDialog(self.event_manager, date_str)
+                dialog.present(self)
+            else:
+                # Show add event dialog directly
+                dialog = AddEventDialog(self.event_manager, date_str)
+                dialog.present(self)
     
     def _on_month_changed(self, calendar):
         """Handle month/year change - update marks."""
         GLib.idle_add(self._update_calendar_marks)
     
     def _update_calendar_marks(self):
-        """Update calendar to mark dates with events."""
+        """Update calendar to mark dates with events and update indicator."""
         # Clear all marks first
         self.calendar.clear_marks()
         
@@ -95,7 +127,8 @@ class DotfilesCalendarWindow(Adw.ApplicationWindow):
         # Get all dates with events
         dates_with_events = self.event_manager.get_dates_with_events()
         
-        # Mark days in the current month that have events
+        # Find days in the current month that have events
+        days_with_events = []
         for date_str in dates_with_events:
             try:
                 parts = date_str.split("-")
@@ -105,9 +138,9 @@ class DotfilesCalendarWindow(Adw.ApplicationWindow):
                 
                 if year == current_year and month == current_month:
                     self.calendar.mark_day(day)
+                    days_with_events.append(day)
             except (ValueError, IndexError):
                 pass
-        
         return False  # Don't repeat
     
     def show_events_for_selected_date(self):
